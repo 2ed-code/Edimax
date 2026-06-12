@@ -2,8 +2,8 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Edimax BR-6428ns v3</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>Edimax BR-6428ns v3 – تحكم كامل</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; }
     body { background: #eef2f9; padding: 16px; }
@@ -31,6 +31,7 @@
     .mac-item button { padding: 6px 14px; font-size: 12px; background: #dc2626; }
     .field { flex: 1; min-width: 160px; }
     @media (max-width: 600px) { .flex-row { flex-direction: column; } button { width: 100%; } }
+    .status-badge { font-size: 12px; margin-right: 8px; }
   </style>
 </head>
 <body>
@@ -38,7 +39,7 @@
 
   <!-- الاتصال -->
   <div class="card">
-    <h2>🌐 Edimax BR-6428ns v3 — لوحة التحكم</h2>
+    <h2>🌐 Edimax BR-6428ns v3 — لوحة تحكم متقدمة</h2>
     <div class="flex-row">
       <div class="field">
         <label>IP الراوتر</label>
@@ -54,20 +55,20 @@
       </div>
     </div>
     <div class="flex-row" style="margin-top:12px;">
-      <button onclick="testConn()">🔌 اختبار الاتصال</button>
-      <button onclick="loginLoad()">🚀 دخول وجلب الأجهزة</button>
+      <button onclick="testConnection()">🔌 اختبار الاتصال</button>
+      <button onclick="fullLoginAndFetch()">🚀 دخول وجلب الأجهزة</button>
     </div>
     <div id="conn-status"></div>
   </div>
 
-  <!-- الأجهزة -->
+  <!-- الأجهزة المتصلة -->
   <div class="card">
     <h3>📱 الأجهزة المتصلة</h3>
     <button onclick="fetchDevices()" style="margin-bottom:10px;">🔄 تحديث</button>
     <div id="dev-list"><span style="color:#888;font-size:13px;">لم يتم تسجيل الدخول بعد</span></div>
   </div>
 
-  <!-- الحظر -->
+  <!-- حظر MAC -->
   <div class="card">
     <h3>⛔ حظر جهاز عبر MAC</h3>
     <div class="flex-row">
@@ -79,21 +80,20 @@
         <label>وصف (اختياري)</label>
         <input type="text" id="blk-desc" placeholder="مثلاً: هاتف أحمد">
       </div>
-      <button onclick="blockMac()">🚫 حظر</button>
+      <button onclick="blockMacAddress()">🚫 حظر</button>
     </div>
     <div id="blacklist"></div>
   </div>
 
-  <!-- الإعدادات -->
+  <!-- إعدادات متقدمة -->
   <div class="card">
     <h3>⚙️ إعدادات متقدمة</h3>
-
     <div class="flex-row">
       <div class="field">
         <label>🔐 كلمة مرور WiFi الجديدة</label>
         <input type="password" id="wifipwd" placeholder="8 أحرف على الأقل">
       </div>
-      <button onclick="changeWifiPwd()">تغيير</button>
+      <button onclick="changeWifiPassword()">تغيير</button>
     </div>
     <hr>
     <div class="flex-row">
@@ -104,15 +104,15 @@
           <option value="1">مخفية</option>
         </select>
       </div>
-      <button onclick="setSsid()">تطبيق</button>
+      <button onclick="setSsidVisibility()">تطبيق</button>
     </div>
     <hr>
     <div class="flex-row">
       <div class="field">
         <label>👤 اسم مستخدم الراوتر الجديد</label>
-        <input type="text" id="newuser" dir="ltr">
+        <input type="text" id="newuser" dir="ltr" placeholder="admin جديد">
       </div>
-      <button onclick="changeUser()">تغيير</button>
+      <button onclick="changeAdminUser()">تغيير</button>
     </div>
     <hr>
     <label style="font-weight:600;margin-bottom:10px;display:block;">⚡ تحديد سرعة جهاز (QoS)</label>
@@ -129,265 +129,401 @@
         <label>رفع Mbps</label>
         <input type="number" id="qul" placeholder="0 = بلا حد">
       </div>
-      <button onclick="setQos()">تطبيق</button>
+      <button onclick="setQosRate()">تطبيق</button>
     </div>
   </div>
-
 </div>
 <div id="toast" class="toast"></div>
 
 <script>
-  let devices  = [];
-  let blacklist = [];
-
-  // ── بيانات الراوتر ──
-  const ip    = () => document.getElementById('rip').value.trim();
-  const user  = () => document.getElementById('ruser').value.trim();
-  const pass  = () => document.getElementById('rpass').value;
-  const auth  = () => 'Basic ' + btoa(user() + ':' + pass());
-  const url   = p => 'http://' + ip() + p;
-
-  // ── Toast ──
-  function toast(msg, err=false) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.style.background = err ? '#b91c1c' : '#15803d';
-    t.style.display = 'block';
-    clearTimeout(t._t);
-    t._t = setTimeout(() => t.style.display='none', 4000);
+  // --------------------------------------------------------------
+  // دوال مساعدة - استخدام XMLHttpRequest لتجنب CORS preflight
+  // --------------------------------------------------------------
+  function getRouterUrl() {
+    let ip = document.getElementById('rip').value.trim();
+    if (!ip) ip = '192.168.1.185';
+    return 'http://' + ip;
   }
 
-  function setHtml(id, html) { document.getElementById(id).innerHTML = html; }
+  function getAuthHeader() {
+    const user = document.getElementById('ruser').value.trim();
+    const pass = document.getElementById('rpass').value;
+    return 'Basic ' + btoa(user + ':' + pass);
+  }
 
-  // ── طلب GET للراوتر ──
-  async function rGet(path) {
-    const r = await fetch(url(path), {
-      headers: { 'Authorization': auth() },
-      credentials: 'include',
-      mode: 'cors'
+  // طلب GET عبر XHR (لا يرسل OPTIONS)
+  function xhrGet(path, timeout = 8000) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fullUrl = getRouterUrl() + path;
+      xhr.open('GET', fullUrl, true);
+      xhr.withCredentials = true;   // مهم لإرسال الكوكيز / المصادقة
+      xhr.setRequestHeader('Authorization', getAuthHeader());
+      xhr.timeout = timeout;
+      xhr.onload = function() {
+        if (xhr.status === 401) reject(new Error('اسم المستخدم أو كلمة المرور خاطئة (401)'));
+        else if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
+        else reject(new Error(`HTTP ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('فشل الاتصال - تحقق من IP / CORS أو قم بتفعيل CORS Unblock'));
+      xhr.ontimeout = () => reject(new Error('انتهى الوقت: لا استجابة من الراوتر'));
+      xhr.send();
     });
-    if (r.status === 401) throw new Error('اسم المستخدم أو كلمة المرور خاطئة');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.text();
   }
 
-  // ── طلب POST للراوتر ──
-  async function rPost(path, params) {
-    const body = new URLSearchParams(params).toString();
+  // طلب POST عبر XHR (application/x-www-form-urlencoded)
+  function xhrPost(path, params, timeout = 8000) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fullUrl = getRouterUrl() + path;
+      xhr.open('POST', fullUrl, true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('Authorization', getAuthHeader());
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.timeout = timeout;
+      const body = new URLSearchParams(params).toString();
+      xhr.onload = function() {
+        if (xhr.status === 401) reject(new Error('Unauthorized - فشل المصادقة'));
+        else if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
+        else reject(new Error(`POST فشل: ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('POST شبكة فاشلة'));
+      xhr.ontimeout = () => reject(new Error('POST مهلة'));
+      xhr.send(body);
+    });
+  }
+
+  // عرض رسائل منبثقة
+  function showToast(msg, isError = false) {
+    const toastEl = document.getElementById('toast');
+    toastEl.textContent = msg;
+    toastEl.style.background = isError ? '#b91c1c' : '#15803d';
+    toastEl.style.display = 'block';
+    if (toastEl._timer) clearTimeout(toastEl._timer);
+    toastEl._timer = setTimeout(() => toastEl.style.display = 'none', 4000);
+  }
+
+  function setHtml(id, content) {
+    document.getElementById(id).innerHTML = content;
+  }
+
+  // --------------------------------------------------------------
+  // بيانات عامة
+  let devicesList = [];      // { mac, ip, name, blocked }
+  let blockedMacs = [];     // { mac, desc }
+
+  // --------------------------------------------------------------
+  // 1. اختبار الاتصال الأساسي
+  // --------------------------------------------------------------
+  async function testConnection() {
+    setHtml('conn-status', '<span style="color:#888;">🔄 جاري اختبار الاتصال...</span>');
     try {
-      const r = await fetch(url(path), {
-        method: 'POST',
-        headers: { 'Authorization': auth(), 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
-        body,
-        mode: 'cors'
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return await r.text();
-    } catch(e) {
-      // لو CORS منع القراءة، نرسل بـ no-cors (التنفيذ يحصل بدون رد)
-      await fetch(url(path), {
-        method: 'POST',
-        headers: { 'Authorization': auth(), 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-        mode: 'no-cors'
-      });
-      return 'sent';
+      const html = await xhrGet('/', 5000);
+      if (html && (html.includes('Edimax') || html.includes('login') || html.includes('admin'))) {
+        setHtml('conn-status', '<div class="msg ok">✅ الاتصال بالراوتر ناجح - صفحة الويب تستجيب</div>');
+        showToast('اتصال ناجح بالراوتر');
+      } else {
+        setHtml('conn-status', '<div class="msg ok">✅ تم الرد من الراوتر (استجابة غير متوقعة لكن اتصال يعمل)</div>');
+      }
+    } catch (err) {
+      let errMsg = err.message;
+      if (errMsg.includes('Failed to fetch') || errMsg.includes('فشل الاتصال')) {
+        errMsg = '❌ فشل CORS أو الراوتر لا يستجيب. تأكد من:<br>• تفعيل إضافة CORS Unblock في Kiwi.<br>• وضع https://2ed-code.github.io في Access-Control-Allow-Origin (مع Credentials).<br>• Scope: 192.168.1.185';
+      }
+      setHtml('conn-status', `<div class="msg err">❌ خطأ: ${errMsg}</div>`);
+      showToast(err.message, true);
     }
   }
 
-  // ══════════════════════════════════
-  //  اختبار الاتصال
-  // ══════════════════════════════════
-  async function testConn() {
-    setHtml('conn-status', '<span style="color:#888;font-size:13px;">🔄 جاري الاختبار...</span>');
-    try {
-      const r = await fetch(url('/'), {
-        headers: { 'Authorization': auth() },
-        credentials: 'include',
-        mode: 'cors',
-        signal: AbortSignal.timeout(5000)
-      });
-      if (r.status === 401) throw new Error('اسم المستخدم أو كلمة المرور خاطئة');
-      setHtml('conn-status', '<div class="msg ok">✅ تم الاتصال بالراوتر بنجاح</div>');
-      toast('✅ الاتصال ناجح');
-    } catch(e) {
-      const isCors = e.message === 'Failed to fetch' || e instanceof TypeError;
-      const hint = isCors
-        ? '<br><small>⚠️ تأكد أن CORS Unblock مفعّل في Kiwi — وأن Origin مضبوط على <b>https://2ed-code.github.io</b> (مش *) مع تفعيل Credentials</small>'
-        : '';
-      setHtml('conn-status', `<div class="msg err">❌ ${e.message}${hint}</div>`);
-      toast(e.message, true);
-    }
-  }
-
-  // ══════════════════════════════════
-  //  جلب الأجهزة
-  // ══════════════════════════════════
+  // --------------------------------------------------------------
+  // 2. جلب الأجهزة المتصلة (محاولة عدة endpoints + استخراج MAC/IP)
+  // --------------------------------------------------------------
   async function fetchDevices() {
-    setHtml('dev-list', '<span style="color:#888;font-size:13px;">🔄 جاري الجلب...</span>');
-
-    // مسارات محتملة لجلب الأجهزة من راوتر Edimax
+    setHtml('dev-list', '<span>🔄 جلب الأجهزة...</span>');
+    let responseText = null;
     const endpoints = [
       '/goform/GetClientList',
       '/goform/formDhcpLease',
       '/Wireless_Basic.asp',
       '/dhcpd_leases.asp',
-      '/client_list.asp'
+      '/client_list.asp',
+      '/status_wan.asp'
     ];
-
-    let text = null;
-    let usedEndpoint = '';
-    for (const ep of endpoints) {
+    for (let ep of endpoints) {
       try {
-        text = await rGet(ep);
-        usedEndpoint = ep;
-        break;
-      } catch(_) {}
+        const txt = await xhrGet(ep, 4000);
+        if (txt && txt.length > 50) {
+          responseText = txt;
+          break;
+        }
+      } catch (e) { /* جرب التالي */ }
     }
-
-    if (!text) {
-      setHtml('dev-list', '<div class="msg err">❌ تعذّر جلب الأجهزة — تأكد من الاتصال وإعدادات CORS</div>');
+    if (!responseText) {
+      setHtml('dev-list', '<div class="msg err">❌ لم نتمكن من جلب قائمة الأجهزة. تأكد من صلاحية الدخول أو أن الراوتر يدعم هذه الصفحات.</div>');
       return;
     }
 
+    // استخراج الأجهزة
+    let parsedDevices = [];
+    // محاولة JSON أولاً
     try {
-      let list = [];
-
-      // محاولة JSON
-      try {
-        const j = JSON.parse(text);
-        const src = Array.isArray(j) ? j : (j.clientList || j.list || []);
-        list = src.map(d => ({ mac: (d.mac||d.MAC||'').toUpperCase(), ip: d.ip||d.IP||'?', name: d.name||d.hostname||'جهاز' }));
-      } catch(_) {}
-
-      // Regex fallback — يستخرج MAC و IP من أي HTML
-      if (!list.length) {
-        const macRe = /([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}/g;
-        const ipRe  = /\b(192|10|172)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
-        const macs  = [...new Set([...text.matchAll(macRe)].map(m=>m[0].toUpperCase()))];
-        const ips   = [...new Set([...text.matchAll(ipRe)].map(m=>m[0]))];
-        list = macs.map((mac,i) => ({ mac, ip: ips[i]||'?', name:'جهاز '+(i+1) }));
+      const json = JSON.parse(responseText);
+      let arr = json.clientList || json.list || json.devices || (Array.isArray(json) ? json : []);
+      if (arr.length) {
+        parsedDevices = arr.map(d => ({
+          mac: (d.mac || d.MAC || '').toUpperCase(),
+          ip: d.ip || d.IP || '?',
+          name: d.name || d.hostname || d.HostName || 'جهاز'
+        })).filter(d => d.mac && d.mac.length > 10);
       }
+    } catch(e) { /* ليس json */ }
 
-      if (!list.length) {
-        setHtml('dev-list', '<div class="msg inf">لم يُعثر على أجهزة في الرد — الراوتر متصل لكن البيانات غير متاحة</div>');
-        return;
+    // إذا لم نجد، نستخدم regex شامل من HTML
+    if (parsedDevices.length === 0) {
+      const macRegex = /([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/g;
+      const ipRegex = /\b(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})\b/g;
+      const allMacs = [...new Set((responseText.match(macRegex) || []).map(m => m.toUpperCase()))];
+      const allIps = [...new Set(responseText.match(ipRegex) || [])];
+      if (allMacs.length) {
+        parsedDevices = allMacs.map((mac, idx) => ({
+          mac: mac,
+          ip: allIps[idx] || '?',
+          name: `جهاز ${idx+1}`
+        }));
       }
+    }
 
-      devices = list.map(d => ({ ...d, blocked: blacklist.some(b=>b.mac===d.mac) }));
-      renderDevices();
+    if (parsedDevices.length === 0) {
+      setHtml('dev-list', '<div class="msg inf">⚠️ لم يتم العثور على أجهزة في الرد. قد يكون الراوتر لا يظهر قائمة الأجهزة عبر هذه المسارات.</div>');
+      return;
+    }
+
+    // دمج مع قائمة المحظورين الحالية
+    devicesList = parsedDevices.map(d => ({
+      ...d,
+      blocked: blockedMacs.some(b => b.mac === d.mac)
+    }));
+    renderDevicesTable();
+    showToast(`تم العثور على ${devicesList.length} جهاز متصل`, false);
+  }
+
+  function renderDevicesTable() {
+    if (!devicesList.length) {
+      setHtml('dev-list', '<div class="msg inf">لا توجد أجهزة متصلة معروضة</div>');
+      return;
+    }
+    let html = `<table><thead><tr><th>الجهاز</th><th>IP</th><th>MAC</th><th>الحالة</th><th></th></tr></thead><tbody>`;
+    for (let d of devicesList) {
+      const blockedClass = d.blocked ? 'off' : 'on';
+      const blockedText = d.blocked ? '🚫 محظور' : '✅ متصل';
+      html += `<tr>
+        <td>${escapeHtml(d.name)}</td>
+        <td>${escapeHtml(d.ip)}</td>
+        <td><span class="mac">${escapeHtml(d.mac)}</span></td>
+        <td class="${blockedClass}">${blockedText}</td>
+        <td><button onclick="toggleBlockDevice('${d.mac}')">${d.blocked ? 'رفع الحظر' : 'حظر'}</button></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    setHtml('dev-list', html);
+  }
+
+  // --------------------------------------------------------------
+  // 3. وظائف الحظر ورفع الحظر (باستخدام goform/formAccept)
+  // --------------------------------------------------------------
+  async function blockMacAddress() {
+    let mac = document.getElementById('blk-mac').value.trim().toUpperCase();
+    if (!mac.match(/^([0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/)) {
+      showToast('صيغة MAC غير صحيحة (مثال: AA:BB:CC:DD:EE:FF)', true);
+      return;
+    }
+    if (blockedMacs.some(b => b.mac === mac)) {
+      showToast('هذا الجهاز محظور بالفعل', true);
+      return;
+    }
+    const desc = document.getElementById('blk-desc').value.trim() || 'محظور يدوياً';
+    try {
+      await xhrPost('/goform/formAccept', {
+        mac_addr: mac,
+        filter_type: '1',
+        'submit-url': '/Accept_Control.asp'
+      });
+      blockedMacs.push({ mac, desc });
+      // تحديث حالة الجهاز في القائمة إذا موجود
+      const dev = devicesList.find(d => d.mac === mac);
+      if (dev) dev.blocked = true;
+      renderDevicesTable();
+      renderBlacklistPanel();
+      showToast(`🚫 تم حظر ${mac}`);
+      document.getElementById('blk-mac').value = '';
+      document.getElementById('blk-desc').value = '';
     } catch(e) {
-      setHtml('dev-list', `<div class="msg err">❌ ${e.message}</div>`);
-      toast(e.message, true);
+      showToast(`فشل الحظر: ${e.message}`, true);
     }
   }
 
-  function renderDevices() {
-    let h = `<table><thead><tr><th>الجهاز</th><th>IP</th><th>MAC</th><th>الحالة</th><th></th></tr></thead><tbody>`;
-    devices.forEach(d => {
-      h += `<tr>
-        <td>${esc(d.name)}</td>
-        <td>${esc(d.ip)}</td>
-        <td><span class="mac">${esc(d.mac)}</span></td>
-        <td class="${d.blocked?'off':'on'}">${d.blocked?'🚫 محظور':'✅ متصل'}</td>
-        <td><button onclick="toggle('${d.mac}')">${d.blocked?'رفع الحظر':'حظر'}</button></td>
-      </tr>`;
-    });
-    setHtml('dev-list', h + '</tbody></table>');
+  async function unblockDevice(mac) {
+    try {
+      await xhrPost('/goform/formAccept', {
+        mac_addr: mac,
+        filter_type: '0',
+        'submit-url': '/Accept_Control.asp'
+      });
+      blockedMacs = blockedMacs.filter(b => b.mac !== mac);
+      const dev = devicesList.find(d => d.mac === mac);
+      if (dev) dev.blocked = false;
+      renderDevicesTable();
+      renderBlacklistPanel();
+      showToast(`✅ رفع الحظر عن ${mac}`);
+    } catch(e) {
+      showToast(`فشل رفع الحظر: ${e.message}`, true);
+    }
   }
 
-  // ══════════════════════════════════
-  //  الحظر
-  // ══════════════════════════════════
-  async function blockMac() {
-    let mac = document.getElementById('blk-mac').value.trim().toUpperCase();
-    if (!/^([0-9A-F]{2}[:\-]){5}[0-9A-F]{2}$/.test(mac)) { toast('صيغة MAC خاطئة', true); return; }
-    if (blacklist.some(b=>b.mac===mac)) { toast('موجود بالفعل في القائمة', true); return; }
-    const desc = document.getElementById('blk-desc').value.trim() || 'جهاز محظور';
-    await rPost('/goform/formAccept', { mac_addr:mac, filter_type:'1', 'submit-url':'/Accept_Control.asp' });
-    blacklist.push({ mac, desc });
-    const dev = devices.find(d=>d.mac===mac);
-    if (dev) dev.blocked = true;
-    renderDevices();
-    renderBlacklist();
-    toast('🚫 تم حظر ' + mac);
-    document.getElementById('blk-mac').value = '';
-    document.getElementById('blk-desc').value = '';
+  async function toggleBlockDevice(mac) {
+    if (blockedMacs.some(b => b.mac === mac)) {
+      await unblockDevice(mac);
+    } else {
+      // إضافة إلى القائمة السوداء محلياً ثم إرسال الطلب
+      if (!blockedMacs.some(b => b.mac === mac)) {
+        blockedMacs.push({ mac, desc: 'محظور من الجدول' });
+      }
+      try {
+        await xhrPost('/goform/formAccept', {
+          mac_addr: mac,
+          filter_type: '1',
+          'submit-url': '/Accept_Control.asp'
+        });
+        const dev = devicesList.find(d => d.mac === mac);
+        if (dev) dev.blocked = true;
+        renderDevicesTable();
+        renderBlacklistPanel();
+        showToast(`🚫 تم حظر ${mac}`);
+      } catch(e) {
+        // إعادة إزالة من القائمة المحلية في حال الفشل
+        blockedMacs = blockedMacs.filter(b => b.mac !== mac);
+        showToast(`فشل الحظر: ${e.message}`, true);
+      }
+    }
   }
 
-  async function unblock(mac) {
-    await rPost('/goform/formAccept', { mac_addr:mac, filter_type:'0', 'submit-url':'/Accept_Control.asp' });
-    blacklist = blacklist.filter(b=>b.mac!==mac);
-    const dev = devices.find(d=>d.mac===mac);
-    if (dev) dev.blocked = false;
-    renderDevices();
-    renderBlacklist();
-    toast('✅ تم رفع الحظر عن ' + mac);
+  function renderBlacklistPanel() {
+    const container = document.getElementById('blacklist');
+    if (!blockedMacs.length) {
+      container.innerHTML = '<div style="color:#888;font-size:13px;margin-top:8px;">لا توجد أجهزة محظورة</div>';
+      return;
+    }
+    let html = '';
+    for (let b of blockedMacs) {
+      html += `<div class="mac-item">
+        <div><span class="mac">${escapeHtml(b.mac)}</span> — ${escapeHtml(b.desc)}</div>
+        <button onclick="unblockDevice('${b.mac}')">✖ إزالة</button>
+      </div>`;
+    }
+    container.innerHTML = html;
   }
 
-  async function toggle(mac) {
-    if (blacklist.some(b=>b.mac===mac)) { await unblock(mac); return; }
-    blacklist.push({ mac, desc:'محظور من الجدول' });
-    await rPost('/goform/formAccept', { mac_addr:mac, filter_type:'1', 'submit-url':'/Accept_Control.asp' });
-    const dev = devices.find(d=>d.mac===mac);
-    if (dev) dev.blocked = true;
-    renderDevices(); renderBlacklist();
-    toast('🚫 تم حظر ' + mac);
+  // --------------------------------------------------------------
+  // 4. وظائف الإعدادات (WiFi، SSID hidden، تغيير user، QoS)
+  // --------------------------------------------------------------
+  async function changeWifiPassword() {
+    const newPwd = document.getElementById('wifipwd').value;
+    if (newPwd.length < 8) {
+      showToast('كلمة المرور يجب أن تكون 8 أحرف على الأقل', true);
+      return;
+    }
+    try {
+      await xhrPost('/goform/formWlbasic', { wpa_psk: newPwd, 'submit-url': '/wireless_basic.asp' });
+      showToast('✅ تم تغيير كلمة مرور WiFi بنجاح');
+      document.getElementById('wifipwd').value = '';
+    } catch(e) {
+      showToast(`خطأ: ${e.message}`, true);
+    }
   }
 
-  function renderBlacklist() {
-    const c = document.getElementById('blacklist');
-    if (!blacklist.length) { c.innerHTML = '<div style="color:#888;font-size:13px;margin-top:8px;">لا توجد أجهزة محظورة</div>'; return; }
-    c.innerHTML = blacklist.map(b => `
-      <div class="mac-item">
-        <div><span class="mac">${esc(b.mac)}</span> — ${esc(b.desc)}</div>
-        <button onclick="unblock('${b.mac}')">✖ إزالة</button>
-      </div>`).join('');
+  async function setSsidVisibility() {
+    const val = document.getElementById('ssid-vis').value; // '0' مرئية, '1' مخفية
+    try {
+      await xhrPost('/goform/formWlbasic', { hide_ssid: val, 'submit-url': '/wireless_basic.asp' });
+      showToast(val === '1' ? '🙈 الشبكة أصبحت مخفية' : '👁 الشبكة مرئية الآن');
+    } catch(e) {
+      showToast(`فشل تغيير إخفاء SSID: ${e.message}`, true);
+    }
   }
 
-  // ══════════════════════════════════
-  //  الإعدادات
-  // ══════════════════════════════════
-  async function changeWifiPwd() {
-    const p = document.getElementById('wifipwd').value;
-    if (p.length < 8) { toast('كلمة المرور يجب أن تكون 8 أحرف على الأقل', true); return; }
-    await rPost('/goform/formWlbasic', { wpa_psk:p, 'submit-url':'/wireless_basic.asp' });
-    toast('✅ تم تغيير كلمة مرور WiFi');
+  async function changeAdminUser() {
+    const newUser = document.getElementById('newuser').value.trim();
+    if (!newUser) {
+      showToast('يرجى إدخال اسم مستخدم جديد', true);
+      return;
+    }
+    try {
+      await xhrPost('/goform/formPassword', { http_username: newUser, 'submit-url': '/password.asp' });
+      document.getElementById('ruser').value = newUser;
+      showToast(`✅ تم تغيير اسم المستخدم إلى ${newUser}`);
+      document.getElementById('newuser').value = '';
+    } catch(e) {
+      showToast(`فشل تغيير المستخدم: ${e.message}`, true);
+    }
   }
 
-  async function setSsid() {
-    const v = document.getElementById('ssid-vis').value;
-    await rPost('/goform/formWlbasic', { hide_ssid:v, 'submit-url':'/wireless_basic.asp' });
-    toast(v==='1' ? '🙈 الشبكة أصبحت مخفية' : '👁 الشبكة مرئية الآن');
-  }
-
-  async function changeUser() {
-    const u = document.getElementById('newuser').value.trim();
-    if (!u) { toast('أدخل اسم المستخدم', true); return; }
-    await rPost('/goform/formPassword', { http_username:u, 'submit-url':'/password.asp' });
-    document.getElementById('ruser').value = u;
-    toast('✅ تم تغيير اسم المستخدم إلى ' + u);
-  }
-
-  async function setQos() {
+  async function setQosRate() {
     const mac = document.getElementById('qmac').value.trim();
-    if (!mac) { toast('أدخل MAC الجهاز', true); return; }
-    const dl = document.getElementById('qdl').value || '0';
-    const ul = document.getElementById('qul').value || '0';
-    await rPost('/goform/formQoS', { mac, down_limit:dl, up_limit:ul, 'submit-url':'/QoS_Rate.html' });
-    toast(`⚡ تحميل ${dl} / رفع ${ul} Mbps`);
+    if (!mac) {
+      showToast('أدخل MAC الجهاز', true);
+      return;
+    }
+    const down = document.getElementById('qdl').value || '0';
+    const up = document.getElementById('qul').value || '0';
+    try {
+      await xhrPost('/goform/formQoS', { mac, down_limit: down, up_limit: up, 'submit-url': '/QoS_Rate.html' });
+      showToast(`⚡ تم ضبط تحميل ${down} / رفع ${up} Mbps للجهاز ${mac}`);
+    } catch(e) {
+      showToast(`فشل QoS: ${e.message}`, true);
+    }
   }
 
-  async function loginLoad() {
-    await testConn();
+  // --------------------------------------------------------------
+  // 5. الدخول الكامل + جلب الأجهزة وقائمة الحظر
+  // --------------------------------------------------------------
+  async function fullLoginAndFetch() {
+    await testConnection();
     await fetchDevices();
-    renderBlacklist();
+    // محاولة جلب قائمة المحظورين من الراوتر (اختياري)
+    try {
+      const filterPage = await xhrGet('/Accept_Control.asp', 3000);
+      const macRegexBlk = /([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/g;
+      const blockedFromPage = [...new Set((filterPage.match(macRegexBlk) || []).map(m => m.toUpperCase()))];
+      if (blockedFromPage.length) {
+        for (let m of blockedFromPage) {
+          if (!blockedMacs.some(b => b.mac === m)) {
+            blockedMacs.push({ mac: m, desc: 'من قائمة الراوتر' });
+          }
+        }
+        // تحديث حالة الأجهزة
+        devicesList.forEach(d => { d.blocked = blockedMacs.some(b => b.mac === d.mac); });
+        renderDevicesTable();
+      }
+    } catch(e) { /* لا توجد قائمة محظورين */ }
+    renderBlacklistPanel();
   }
 
-  function esc(s) {
-    return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+      if (m === '&') return '&amp;';
+      if (m === '<') return '&lt;';
+      if (m === '>') return '&gt;';
+      return m;
+    });
   }
+
+  // تحميل القائمة السوداء المخزنة مؤقتاً (بداية فارغة)
+  window.onload = () => {
+    renderBlacklistPanel();
+    // تعيين حدث للكشف عن ضبط CORS
+    console.log("جاهز - استخدم XHR لتجنب preflight");
+  };
 </script>
 </body>
 </html>
