@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edimax BR-6428ns v3</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    body { background: #eef2f9; padding: 16px; }
+    .container { max-width: 1000px; margin: auto; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    h2, h3 { margin-bottom: 14px; display: flex; align-items: center; gap: 8px; font-size: 17px; }
+    .flex-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    label { display: block; margin-bottom: 5px; font-size: 13px; color: #555; }
+    input, select { padding: 11px 16px; border-radius: 60px; border: 1px solid #ccc; font-size: 14px; background: #fff; width: 100%; }
+    button { padding: 11px 20px; border-radius: 60px; background: #1e466e; color: white; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; white-space: nowrap; font-size: 14px; }
+    button:active { background: #0f2c48; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+    th, td { padding: 10px 6px; text-align: right; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f8fafc; font-weight: 600; }
+    .mac { font-family: monospace; background: #f1f5f9; padding: 3px 7px; border-radius: 16px; font-size: 12px; }
+    .on { color: #16a34a; font-weight: bold; }
+    .off { color: #dc2626; font-weight: bold; }
+    .toast { position: fixed; bottom: 16px; left: 16px; right: 16px; background: #1f2937; color: white; padding: 12px 20px; border-radius: 60px; display: none; z-index: 1000; font-size: 14px; text-align: center; }
+    .msg { padding: 10px 14px; border-radius: 16px; margin-top: 10px; font-size: 13px; }
+    .err { background: #fee2e2; color: #b91c1c; }
+    .ok  { background: #dcfce7; color: #15803d; }
+    .inf { background: #dbeafe; color: #1e40af; }
+    hr { margin: 16px 0; border: none; border-top: 1px solid #e2e8f0; }
+    .mac-item { background: #f8fafc; margin: 6px 0; padding: 10px 14px; border-radius: 30px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+    .mac-item button { padding: 6px 14px; font-size: 12px; background: #dc2626; }
+    .field { flex: 1; min-width: 160px; }
+    @media (max-width: 600px) { .flex-row { flex-direction: column; } button { width: 100%; } }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- الاتصال -->
+  <div class="card">
+    <h2>🌐 Edimax BR-6428ns v3 — لوحة التحكم</h2>
+    <div class="flex-row">
+      <div class="field">
+        <label>IP الراوتر</label>
+        <input type="text" id="rip" value="192.168.2.1" dir="ltr">
+      </div>
+      <div class="field">
+        <label>اسم المستخدم</label>
+        <input type="text" id="ruser" value="admin" dir="ltr">
+      </div>
+      <div class="field">
+        <label>كلمة المرور</label>
+        <input type="password" id="rpass">
+      </div>
+    </div>
+    <div class="flex-row" style="margin-top:12px;">
+      <button onclick="testConn()">🔌 اختبار الاتصال</button>
+      <button onclick="loginLoad()">🚀 دخول وجلب الأجهزة</button>
+    </div>
+    <div id="conn-status"></div>
+  </div>
+
+  <!-- الأجهزة -->
+  <div class="card">
+    <h3>📱 الأجهزة المتصلة</h3>
+    <button onclick="fetchDevices()" style="margin-bottom:10px;">🔄 تحديث</button>
+    <div id="dev-list"><span style="color:#888;font-size:13px;">لم يتم تسجيل الدخول بعد</span></div>
+  </div>
+
+  <!-- الحظر -->
+  <div class="card">
+    <h3>⛔ حظر جهاز عبر MAC</h3>
+    <div class="flex-row">
+      <div class="field">
+        <label>عنوان MAC</label>
+        <input type="text" id="blk-mac" placeholder="AA:BB:CC:DD:EE:FF" dir="ltr">
+      </div>
+      <div class="field">
+        <label>وصف (اختياري)</label>
+        <input type="text" id="blk-desc" placeholder="مثلاً: هاتف أحمد">
+      </div>
+      <button onclick="blockMac()">🚫 حظر</button>
+    </div>
+    <div id="blacklist"></div>
+  </div>
+
+  <!-- الإعدادات -->
+  <div class="card">
+    <h3>⚙️ إعدادات متقدمة</h3>
+
+    <div class="flex-row">
+      <div class="field">
+        <label>🔐 كلمة مرور WiFi الجديدة</label>
+        <input type="password" id="wifipwd" placeholder="8 أحرف على الأقل">
+      </div>
+      <button onclick="changeWifiPwd()">تغيير</button>
+    </div>
+    <hr>
+    <div class="flex-row">
+      <div class="field">
+        <label>🙈 إظهار / إخفاء الشبكة</label>
+        <select id="ssid-vis">
+          <option value="0">مرئية</option>
+          <option value="1">مخفية</option>
+        </select>
+      </div>
+      <button onclick="setSsid()">تطبيق</button>
+    </div>
+    <hr>
+    <div class="flex-row">
+      <div class="field">
+        <label>👤 اسم مستخدم الراوتر الجديد</label>
+        <input type="text" id="newuser" dir="ltr">
+      </div>
+      <button onclick="changeUser()">تغيير</button>
+    </div>
+    <hr>
+    <label style="font-weight:600;margin-bottom:10px;display:block;">⚡ تحديد سرعة جهاز (QoS)</label>
+    <div class="flex-row">
+      <div class="field">
+        <label>MAC الجهاز</label>
+        <input type="text" id="qmac" placeholder="AA:BB:CC:DD:EE:FF" dir="ltr">
+      </div>
+      <div class="field">
+        <label>تحميل Mbps</label>
+        <input type="number" id="qdl" placeholder="0 = بلا حد">
+      </div>
+      <div class="field">
+        <label>رفع Mbps</label>
+        <input type="number" id="qul" placeholder="0 = بلا حد">
+      </div>
+      <button onclick="setQos()">تطبيق</button>
+    </div>
+  </div>
+
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+  let devices  = [];
+  let blacklist = [];
+
+  // ── بيانات الراوتر ──
+  const ip    = () => document.getElementById('rip').value.trim();
+  const user  = () => document.getElementById('ruser').value.trim();
+  const pass  = () => document.getElementById('rpass').value;
+  const auth  = () => 'Basic ' + btoa(user() + ':' + pass());
+  const url   = p => 'http://' + ip() + p;
+
+  // ── Toast ──
+  function toast(msg, err=false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.background = err ? '#b91c1c' : '#15803d';
+    t.style.display = 'block';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => t.style.display='none', 4000);
+  }
+
+  function setHtml(id, html) { document.getElementById(id).innerHTML = html; }
+
+  // ── طلب GET للراوتر ──
+  async function rGet(path) {
+    const r = await fetch(url(path), {
+      headers: { 'Authorization': auth() },
+      mode: 'cors'
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  }
+
+  // ── طلب POST للراوتر ──
+  async function rPost(path, params) {
+    const body = new URLSearchParams(params).toString();
+    try {
+      const r = await fetch(url(path), {
+        method: 'POST',
+        headers: { 'Authorization': auth(), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        mode: 'cors'
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.text();
+    } catch(e) {
+      // لو CORS منع القراءة، نرسل بـ no-cors (التنفيذ يحصل بدون رد)
+      await fetch(url(path), {
+        method: 'POST',
+        headers: { 'Authorization': auth(), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        mode: 'no-cors'
+      });
+      return 'sent';
+    }
+  }
+
+  // ══════════════════════════════════
+  //  اختبار الاتصال
+  // ══════════════════════════════════
+  async function testConn() {
+    setHtml('conn-status', '<span style="color:#888;font-size:13px;">🔄 جاري الاختبار...</span>');
+    try {
+      const r = await fetch(url('/'), { headers:{ 'Authorization': auth() }, mode:'cors', signal: AbortSignal.timeout(5000) });
+      if (r.status === 401) throw new Error('كلمة المرور أو اسم المستخدم خاطئ');
+      setHtml('conn-status', '<div class="msg ok">✅ تم الاتصال بالراوتر بنجاح</div>');
+      toast('✅ الاتصال ناجح');
+    } catch(e) {
+      setHtml('conn-status', `<div class="msg err">❌ ${e.message}<br><small>تأكد أن CORS Unblock مفعّل في Kiwi Browser</small></div>`);
+      toast(e.message, true);
+    }
+  }
+
+  // ══════════════════════════════════
+  //  جلب الأجهزة
+  // ══════════════════════════════════
+  async function fetchDevices() {
+    setHtml('dev-list', '<span style="color:#888;font-size:13px;">🔄 جاري الجلب...</span>');
+    try {
+      const text = await rGet('/goform/GetClientList');
+      let list = [];
+
+      // محاولة JSON
+      try {
+        const j = JSON.parse(text);
+        const src = Array.isArray(j) ? j : (j.clientList || []);
+        list = src.map(d => ({ mac: (d.mac||'').toUpperCase(), ip: d.ip||'?', name: d.name||'جهاز' }));
+      } catch(_) {}
+
+      // Regex fallback
+      if (!list.length) {
+        const macs = [...text.matchAll(/([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}/g)].map(m=>m[0].toUpperCase());
+        const ips  = [...text.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)].map(m=>m[0]);
+        list = macs.map((mac,i) => ({ mac, ip: ips[i]||'?', name:'جهاز '+(i+1) }));
+      }
+
+      if (!list.length) {
+        setHtml('dev-list', '<div class="msg inf">لم يتم العثور على أجهزة — تأكد من الاتصال بالراوتر</div>');
+        return;
+      }
+
+      devices = list.map(d => ({ ...d, blocked: blacklist.some(b=>b.mac===d.mac) }));
+      renderDevices();
+    } catch(e) {
+      setHtml('dev-list', `<div class="msg err">❌ ${e.message}</div>`);
+      toast(e.message, true);
+    }
+  }
+
+  function renderDevices() {
+    let h = `<table><thead><tr><th>الجهاز</th><th>IP</th><th>MAC</th><th>الحالة</th><th></th></tr></thead><tbody>`;
+    devices.forEach(d => {
+      h += `<tr>
+        <td>${esc(d.name)}</td>
+        <td>${esc(d.ip)}</td>
+        <td><span class="mac">${esc(d.mac)}</span></td>
+        <td class="${d.blocked?'off':'on'}">${d.blocked?'🚫 محظور':'✅ متصل'}</td>
+        <td><button onclick="toggle('${d.mac}')">${d.blocked?'رفع الحظر':'حظر'}</button></td>
+      </tr>`;
+    });
+    setHtml('dev-list', h + '</tbody></table>');
+  }
+
+  // ══════════════════════════════════
+  //  الحظر
+  // ══════════════════════════════════
+  async function blockMac() {
+    let mac = document.getElementById('blk-mac').value.trim().toUpperCase();
+    if (!/^([0-9A-F]{2}[:\-]){5}[0-9A-F]{2}$/.test(mac)) { toast('صيغة MAC خاطئة', true); return; }
+    if (blacklist.some(b=>b.mac===mac)) { toast('موجود بالفعل في القائمة', true); return; }
+    const desc = document.getElementById('blk-desc').value.trim() || 'جهاز محظور';
+    await rPost('/goform/formAccept', { mac_addr:mac, filter_type:'1', 'submit-url':'/Accept_Control.asp' });
+    blacklist.push({ mac, desc });
+    const dev = devices.find(d=>d.mac===mac);
+    if (dev) dev.blocked = true;
+    renderDevices();
+    renderBlacklist();
+    toast('🚫 تم حظر ' + mac);
+    document.getElementById('blk-mac').value = '';
+    document.getElementById('blk-desc').value = '';
+  }
+
+  async function unblock(mac) {
+    await rPost('/goform/formAccept', { mac_addr:mac, filter_type:'0', 'submit-url':'/Accept_Control.asp' });
+    blacklist = blacklist.filter(b=>b.mac!==mac);
+    const dev = devices.find(d=>d.mac===mac);
+    if (dev) dev.blocked = false;
+    renderDevices();
+    renderBlacklist();
+    toast('✅ تم رفع الحظر عن ' + mac);
+  }
+
+  async function toggle(mac) {
+    if (blacklist.some(b=>b.mac===mac)) { await unblock(mac); return; }
+    blacklist.push({ mac, desc:'محظور من الجدول' });
+    await rPost('/goform/formAccept', { mac_addr:mac, filter_type:'1', 'submit-url':'/Accept_Control.asp' });
+    const dev = devices.find(d=>d.mac===mac);
+    if (dev) dev.blocked = true;
+    renderDevices(); renderBlacklist();
+    toast('🚫 تم حظر ' + mac);
+  }
+
+  function renderBlacklist() {
+    const c = document.getElementById('blacklist');
+    if (!blacklist.length) { c.innerHTML = '<div style="color:#888;font-size:13px;margin-top:8px;">لا توجد أجهزة محظورة</div>'; return; }
+    c.innerHTML = blacklist.map(b => `
+      <div class="mac-item">
+        <div><span class="mac">${esc(b.mac)}</span> — ${esc(b.desc)}</div>
+        <button onclick="unblock('${b.mac}')">✖ إزالة</button>
+      </div>`).join('');
+  }
+
+  // ══════════════════════════════════
+  //  الإعدادات
+  // ══════════════════════════════════
+  async function changeWifiPwd() {
+    const p = document.getElementById('wifipwd').value;
+    if (p.length < 8) { toast('كلمة المرور يجب أن تكون 8 أحرف على الأقل', true); return; }
+    await rPost('/goform/formWlbasic', { wpa_psk:p, 'submit-url':'/wireless_basic.asp' });
+    toast('✅ تم تغيير كلمة مرور WiFi');
+  }
+
+  async function setSsid() {
+    const v = document.getElementById('ssid-vis').value;
+    await rPost('/goform/formWlbasic', { hide_ssid:v, 'submit-url':'/wireless_basic.asp' });
+    toast(v==='1' ? '🙈 الشبكة أصبحت مخفية' : '👁 الشبكة مرئية الآن');
+  }
+
+  async function changeUser() {
+    const u = document.getElementById('newuser').value.trim();
+    if (!u) { toast('أدخل اسم المستخدم', true); return; }
+    await rPost('/goform/formPassword', { http_username:u, 'submit-url':'/password.asp' });
+    document.getElementById('ruser').value = u;
+    toast('✅ تم تغيير اسم المستخدم إلى ' + u);
+  }
+
+  async function setQos() {
+    const mac = document.getElementById('qmac').value.trim();
+    if (!mac) { toast('أدخل MAC الجهاز', true); return; }
+    const dl = document.getElementById('qdl').value || '0';
+    const ul = document.getElementById('qul').value || '0';
+    await rPost('/goform/formQoS', { mac, down_limit:dl, up_limit:ul, 'submit-url':'/QoS_Rate.html' });
+    toast(`⚡ تحميل ${dl} / رفع ${ul} Mbps`);
+  }
+
+  async function loginLoad() {
+    await testConn();
+    await fetchDevices();
+    renderBlacklist();
+  }
+
+  function esc(s) {
+    return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  }
+</script>
+</body>
+</html>
