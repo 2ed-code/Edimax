@@ -42,7 +42,7 @@
     <div class="flex-row">
       <div class="field">
         <label>IP الراوتر</label>
-        <input type="text" id="rip" value="192.168.2.1" dir="ltr">
+        <input type="text" id="rip" value="192.168.1.185" dir="ltr">
       </div>
       <div class="field">
         <label>اسم المستخدم</label>
@@ -163,8 +163,10 @@
   async function rGet(path) {
     const r = await fetch(url(path), {
       headers: { 'Authorization': auth() },
+      credentials: 'include',
       mode: 'cors'
     });
+    if (r.status === 401) throw new Error('اسم المستخدم أو كلمة المرور خاطئة');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.text();
   }
@@ -176,6 +178,7 @@
       const r = await fetch(url(path), {
         method: 'POST',
         headers: { 'Authorization': auth(), 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'include',
         body,
         mode: 'cors'
       });
@@ -199,12 +202,21 @@
   async function testConn() {
     setHtml('conn-status', '<span style="color:#888;font-size:13px;">🔄 جاري الاختبار...</span>');
     try {
-      const r = await fetch(url('/'), { headers:{ 'Authorization': auth() }, mode:'cors', signal: AbortSignal.timeout(5000) });
-      if (r.status === 401) throw new Error('كلمة المرور أو اسم المستخدم خاطئ');
+      const r = await fetch(url('/'), {
+        headers: { 'Authorization': auth() },
+        credentials: 'include',
+        mode: 'cors',
+        signal: AbortSignal.timeout(5000)
+      });
+      if (r.status === 401) throw new Error('اسم المستخدم أو كلمة المرور خاطئة');
       setHtml('conn-status', '<div class="msg ok">✅ تم الاتصال بالراوتر بنجاح</div>');
       toast('✅ الاتصال ناجح');
     } catch(e) {
-      setHtml('conn-status', `<div class="msg err">❌ ${e.message}<br><small>تأكد أن CORS Unblock مفعّل في Kiwi Browser</small></div>`);
+      const isCors = e.message === 'Failed to fetch' || e instanceof TypeError;
+      const hint = isCors
+        ? '<br><small>⚠️ تأكد أن CORS Unblock مفعّل في Kiwi — وأن Origin مضبوط على <b>https://2ed-code.github.io</b> (مش *) مع تفعيل Credentials</small>'
+        : '';
+      setHtml('conn-status', `<div class="msg err">❌ ${e.message}${hint}</div>`);
       toast(e.message, true);
     }
   }
@@ -214,26 +226,52 @@
   // ══════════════════════════════════
   async function fetchDevices() {
     setHtml('dev-list', '<span style="color:#888;font-size:13px;">🔄 جاري الجلب...</span>');
+
+    // مسارات محتملة لجلب الأجهزة من راوتر Edimax
+    const endpoints = [
+      '/goform/GetClientList',
+      '/goform/formDhcpLease',
+      '/Wireless_Basic.asp',
+      '/dhcpd_leases.asp',
+      '/client_list.asp'
+    ];
+
+    let text = null;
+    let usedEndpoint = '';
+    for (const ep of endpoints) {
+      try {
+        text = await rGet(ep);
+        usedEndpoint = ep;
+        break;
+      } catch(_) {}
+    }
+
+    if (!text) {
+      setHtml('dev-list', '<div class="msg err">❌ تعذّر جلب الأجهزة — تأكد من الاتصال وإعدادات CORS</div>');
+      return;
+    }
+
     try {
-      const text = await rGet('/goform/GetClientList');
       let list = [];
 
       // محاولة JSON
       try {
         const j = JSON.parse(text);
-        const src = Array.isArray(j) ? j : (j.clientList || []);
-        list = src.map(d => ({ mac: (d.mac||'').toUpperCase(), ip: d.ip||'?', name: d.name||'جهاز' }));
+        const src = Array.isArray(j) ? j : (j.clientList || j.list || []);
+        list = src.map(d => ({ mac: (d.mac||d.MAC||'').toUpperCase(), ip: d.ip||d.IP||'?', name: d.name||d.hostname||'جهاز' }));
       } catch(_) {}
 
-      // Regex fallback
+      // Regex fallback — يستخرج MAC و IP من أي HTML
       if (!list.length) {
-        const macs = [...text.matchAll(/([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}/g)].map(m=>m[0].toUpperCase());
-        const ips  = [...text.matchAll(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)].map(m=>m[0]);
+        const macRe = /([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}/g;
+        const ipRe  = /\b(192|10|172)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
+        const macs  = [...new Set([...text.matchAll(macRe)].map(m=>m[0].toUpperCase()))];
+        const ips   = [...new Set([...text.matchAll(ipRe)].map(m=>m[0]))];
         list = macs.map((mac,i) => ({ mac, ip: ips[i]||'?', name:'جهاز '+(i+1) }));
       }
 
       if (!list.length) {
-        setHtml('dev-list', '<div class="msg inf">لم يتم العثور على أجهزة — تأكد من الاتصال بالراوتر</div>');
+        setHtml('dev-list', '<div class="msg inf">لم يُعثر على أجهزة في الرد — الراوتر متصل لكن البيانات غير متاحة</div>');
         return;
       }
 
